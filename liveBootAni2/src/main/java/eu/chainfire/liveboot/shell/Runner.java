@@ -90,6 +90,7 @@ implements
     private static final String LOG_NAME = "/cache/liveboot.log";
     private boolean mLogSave = false;
     private String mBootAnimationPath = null;
+    private boolean mBootAnimationFailed = false;
     private OutputStream mLogStream = null;
     private ReentrantLock mLogLock = new ReentrantLock(true);
     private static final String SCRIPT_NAME_SYSTEM = "/system/su.d/0000liveboot.script";
@@ -297,13 +298,15 @@ implements
                 if (mBootAnimation.load() && mBootAnimation.isValid()) {
                     Logger.d("BootAnimation", "Loaded boot animation from: %s", mBootAnimationPath);
                 } else {
-                    Logger.w("BootAnimation", "Failed to load boot animation, falling back to transparent mode");
+                    Logger.w("BootAnimation", "Failed to load boot animation, using black background");
                     mBootAnimation.destroy();
                     mBootAnimation = null;
+                    mBootAnimationFailed = true;
                 }
             } catch (Exception e) {
-                Logger.e("BootAnimation", "Exception loading boot animation: %s", e.getMessage());
+                Logger.e("BootAnimation", "Exception loading boot animation: %s, using black background", e.getMessage());
                 mBootAnimation = null;
+                mBootAnimationFailed = true;
             }
         }
 
@@ -318,35 +321,40 @@ implements
     
     @Override
     public void onGLRenderFrame() {
-        // Update and draw boot animation first (background, opaque)
-        if (mBootAnimation != null) {
-            mBootAnimation.update();
-            GLES20.glDisable(GLES20.GL_BLEND);
-            mBootAnimation.draw();
-        }
-
-        // Then draw logcat with transparent overlay
         GLES20.glDisable(GLES20.GL_BLEND);
         float alpha = 1.0f;
         if (mComplete > 0) {
             alpha -= ((float)(SystemClock.elapsedRealtime() - mComplete) / (float)LEAD_TIME);
         }
 
-        if (!mTransparent && mBootAnimation == null) {
-            // Fallback to original transparent mode if boot animation failed to load
+        if (mBootAnimation != null) {
+            // Draw custom boot animation as background
+            mBootAnimation.update();
+            mBootAnimation.draw();
+
+            // Draw semi-transparent black overlay for logcat
+            GLES20.glEnable(GLES20.GL_BLEND);
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+            mTextManager.draw();
+        } else if (mBootAnimationFailed) {
+            // Custom boot animation path specified but failed to load: black background + logcat
+            GLES20.glClearColor(0.0f, 0.0f, 0.0f, alpha);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            GLES20.glEnable(GLES20.GL_BLEND);
+            mTextManager.draw();
+        } else if (!mTransparent) {
+            // Original non-transparent mode with solid background (no custom animation path specified)
             float color = (mDark ? 0.75f : 0.25f) * alpha;
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, color);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            GLES20.glEnable(GLES20.GL_BLEND);
+            mTextManager.draw();
         } else {
-            // Use transparent mode for logcat overlay (0.25 alpha)
-            float overlayAlpha = 0.25f * alpha;
-            float overlayColor = 0.0f;
-            GLES20.glClearColor(overlayColor, overlayColor, overlayColor, overlayAlpha);
+            // Transparent mode: don't clear, let system boot animation show through (no custom animation path specified)
+            GLES20.glEnable(GLES20.GL_BLEND);
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+            mTextManager.draw();
         }
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-
-        GLES20.glEnable(GLES20.GL_BLEND);
-
-        mTextManager.draw();
     }    
 
     @Override
