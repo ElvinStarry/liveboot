@@ -89,6 +89,7 @@ implements
     private boolean mLogcatColor = true;
     private static final String LOG_NAME = "/cache/liveboot.log";
     private boolean mLogSave = false;
+    private String mBootAnimationPath = null;
     private OutputStream mLogStream = null;
     private ReentrantLock mLogLock = new ReentrantLock(true);
     private static final String SCRIPT_NAME_SYSTEM = "/system/su.d/0000liveboot.script";
@@ -104,6 +105,7 @@ implements
     private Logcat mLogcat = null;
     private Dmesg mDmesg = null;  
     private Script mScript = null;
+    private eu.chainfire.liveboot.BootAnimation mBootAnimation = null;
     
     private HandlerThread mHandlerThread = null;
     private Handler mHandler = null;
@@ -236,6 +238,9 @@ implements
                     } else if (key.equals("dmesg")) {
                         dmesgOpts = value;
                         Logger.dp("OPTS", "dmesgOpts==%s", dmesgOpts);
+                    } else if (key.equals("bootanimationpath")) {
+                        mBootAnimationPath = value;
+                        Logger.dp("OPTS", "bootanimationpath==%s", mBootAnimationPath);
                     }
                 }
             } catch (Exception e) {
@@ -283,39 +288,73 @@ implements
         mHelper = new GLHelper(mWidth, mHeight, GLHelper.getDefaultVMatrix());
         mTextManager = new GLTextManager(mTextureManager, mHelper, mWidth, mHeight, mHeight / mLines);
 
-        GLPicture.initGl();            
-                
+        GLPicture.initGl();
+
+        // Try to load boot animation
+        if (mBootAnimationPath != null && !mBootAnimationPath.isEmpty()) {
+            try {
+                mBootAnimation = new eu.chainfire.liveboot.BootAnimation(mBootAnimationPath);
+                if (mBootAnimation.load() && mBootAnimation.isValid()) {
+                    Logger.d("BootAnimation", "Loaded boot animation from: %s", mBootAnimationPath);
+                } else {
+                    Logger.w("BootAnimation", "Failed to load boot animation, falling back to transparent mode");
+                    mBootAnimation.destroy();
+                    mBootAnimation = null;
+                }
+            } catch (Exception e) {
+                Logger.e("BootAnimation", "Exception loading boot animation: %s", e.getMessage());
+                mBootAnimation = null;
+            }
+        }
+
         // ready to receive lines
         if (mRunScript == null) {
             if (mDmesg != null) mDmesg.setReady();
             if (mLogcat != null) mLogcat.setReady();
-        } else {        
+        } else {
             mScript = new Script(this, mRunScript);
         }
     }
     
     @Override
     public void onGLRenderFrame() {
+        // Update and draw boot animation first (background, opaque)
+        if (mBootAnimation != null) {
+            mBootAnimation.update();
+            GLES20.glDisable(GLES20.GL_BLEND);
+            mBootAnimation.draw();
+        }
+
+        // Then draw logcat with transparent overlay
         GLES20.glDisable(GLES20.GL_BLEND);
         float alpha = 1.0f;
         if (mComplete > 0) {
             alpha -= ((float)(SystemClock.elapsedRealtime() - mComplete) / (float)LEAD_TIME);
         }
-        if (!mTransparent) {
-            float color = (mDark ? 0.0f : 0.2f * alpha);
-            GLES20.glClearColor(color, color, color, alpha);
-        } else {
+
+        if (!mTransparent && mBootAnimation == null) {
+            // Fallback to original transparent mode if boot animation failed to load
             float color = (mDark ? 0.75f : 0.25f) * alpha;
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, color);
-        }        
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);        
+        } else {
+            // Use transparent mode for logcat overlay (0.25 alpha)
+            float overlayAlpha = 0.25f * alpha;
+            float overlayColor = 0.0f;
+            GLES20.glClearColor(overlayColor, overlayColor, overlayColor, overlayAlpha);
+        }
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+
         GLES20.glEnable(GLES20.GL_BLEND);
-        
+
         mTextManager.draw();
     }    
 
     @Override
     protected void onDoneRender() {
+        if (mBootAnimation != null) {
+            mBootAnimation.destroy();
+            mBootAnimation = null;
+        }
         mTextManager.destroy();
         mTextManager = null;
         mTextureManager.destroy();
@@ -435,18 +474,22 @@ implements
                 if (
                         // Android has signaled to quit, and we haven't seen bootanimation
                         ((complete > 0) && !bootAnimationSeen) ||
-                        
+
                         // bootanimation has come and gone
                         (bootAnimationSeen && bootAnimationGone) ||
-                        
+
                         // Android has signaled to quit, we've seen the bootanimation, but it's still there after 2.5 seconds
                         (bootAnimationSeen && (complete > 0) && (now - complete > 2500))
                 ) {
                     Logger.dp("EXIT", "exit sequence");
+                    // Notify boot animation that boot is complete
+                    if (mBootAnimation != null) {
+                        mBootAnimation.setBootCompleted(true);
+                    }
                     if ((mRunScript != null) && !mTest) {
-                        try { 
-                            Thread.sleep(FOLLOW_TIME_SCRIPT); 
-                        } catch (Exception e) {                            
+                        try {
+                            Thread.sleep(FOLLOW_TIME_SCRIPT);
+                        } catch (Exception e) {
                         }
                     }
                     break;
