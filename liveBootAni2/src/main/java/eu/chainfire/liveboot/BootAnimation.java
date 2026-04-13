@@ -53,7 +53,7 @@ public class BootAnimation {
     private int mPauseFramesRemaining = 0;
     private boolean mBootCompleted = false;
 
-    private Map<String, int[]> mFrameTextures = new HashMap<>();
+    private Map<String, Integer> mFrameTextures = new HashMap<>();
 
     // Shader program
     private int mShaderProgram = -1;
@@ -92,7 +92,7 @@ public class BootAnimation {
         int count;
         int pause;
         float[] backgroundColor = new float[]{0.0f, 0.0f, 0.0f};
-        List<int[]> textures = new ArrayList<>();
+        List<Integer> textures = new ArrayList<>();
     }
 
     public BootAnimation(String zipPath) {
@@ -335,7 +335,7 @@ public class BootAnimation {
                     bitmap.recycle();
 
                     part.textures.add(textureIds[0]);
-                    mFrameTextures.put(entryName, textureIds);
+                    mFrameTextures.put(entryName, textureIds[0]);
 
                     Logger.d(TAG, "Loaded frame: %s", entryName);
                 } catch (IOException e) {
@@ -428,35 +428,32 @@ public class BootAnimation {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
         if (mCurrentFrameIndex < currentPart.textures.size()) {
-            int[] textures = currentPart.textures.get(mCurrentFrameIndex);
-            if (textures != null && textures.length > 0) {
-                int texture = textures[0];
-                if (texture > 0) {
-                    GLES20.glUseProgram(mShaderProgram);
+            Integer texture = currentPart.textures.get(mCurrentFrameIndex);
+            if (texture != null && texture > 0) {
+                GLES20.glUseProgram(mShaderProgram);
 
-                    GLES20.glEnableVertexAttribArray(mPositionHandle);
-                    GLES20.glVertexAttribPointer(mPositionHandle, 2, GLES20.GL_FLOAT, false, 8, mVertexBuffer);
+                GLES20.glEnableVertexAttribArray(mPositionHandle);
+                GLES20.glVertexAttribPointer(mPositionHandle, 2, GLES20.GL_FLOAT, false, 8, mVertexBuffer);
 
-                    GLES20.glEnableVertexAttribArray(mTexCoordHandle);
-                    GLES20.glVertexAttribPointer(mTexCoordHandle, 2, GLES20.GL_FLOAT, false, 8, mTexCoordBuffer);
+                GLES20.glEnableVertexAttribArray(mTexCoordHandle);
+                GLES20.glVertexAttribPointer(mTexCoordHandle, 2, GLES20.GL_FLOAT, false, 8, mTexCoordBuffer);
 
-                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture);
-                    GLES20.glUniform1i(mTextureHandle, 0);
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture);
+                GLES20.glUniform1i(mTextureHandle, 0);
 
-                    float[] mvpMatrix = new float[]{
-                        1.0f, 0.0f, 0.0f, 0.0f,
-                        0.0f, 1.0f, 0.0f, 0.0f,
-                        0.0f, 0.0f, 1.0f, 0.0f,
-                        0.0f, 0.0f, 0.0f, 1.0f
-                    };
-                    GLES20.glUniformMatrix4fv(mMatrixHandle, 1, false, mvpMatrix, 0);
+                float[] mvpMatrix = new float[]{
+                    1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 1.0f
+                };
+                GLES20.glUniformMatrix4fv(mMatrixHandle, 1, false, mvpMatrix, 0);
 
-                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, 6, GLES20.GL_UNSIGNED_SHORT, mIndexBuffer);
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, 6, GLES20.GL_UNSIGNED_SHORT, mIndexBuffer);
 
-                    GLES20.glDisableVertexAttribArray(mPositionHandle);
-                    GLES20.glDisableVertexAttribArray(mTexCoordHandle);
-                }
+                GLES20.glDisableVertexAttribArray(mPositionHandle);
+                GLES20.glDisableVertexAttribArray(mTexCoordHandle);
             }
         }
     }
@@ -483,13 +480,9 @@ public class BootAnimation {
             mShaderProgram = -1;
         }
 
-        for (int[] textures : mFrameTextures.values()) {
-            if (textures != null && textures.length > 0) {
-                for (int texture : textures) {
-                    if (texture > 0) {
-                        GLES20.glDeleteTextures(1, new int[]{texture}, 0);
-                    }
-                }
+        for (Integer texture : mFrameTextures.values()) {
+            if (texture != null && texture > 0) {
+                GLES20.glDeleteTextures(1, new int[]{texture}, 0);
             }
         }
         mFrameTextures.clear();
